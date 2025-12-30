@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>QA Trust Dashboard</title>
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body class="bg-slate-50 text-slate-900">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        // --- YOUR CONFIGURATION ---
+        const SUPABASE_URL = "https://jjpybusjqqhjrpicyxph.supabase.co";
+        // I've preserved your exact key here:
+        const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpqcHlidXNqcXFoanJwaWN5eHBoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjcxMTkwNTQsImV4cCI6MjA4MjY5NTA1NH0.MNLwHiOU_AYt-V1xhaw6zMALpf15ALZvOQuc5k6o0Uo";
+        
+        const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+        function App() {
+            const [runs, setRuns] = React.useState([]);
+            const [stats, setStats] = React.useState({ total: 0, pass: 0, fail: 0 });
+
+            // Fetch Data Loop (Auto-refresh every 5s)
+            React.useEffect(() => {
+                fetchRuns();
+                const interval = setInterval(fetchRuns, 5000); 
+                return () => clearInterval(interval);
+            }, []);
+
+            async function fetchRuns() {
+                const { data, error } = await supabase
+                    .from('qa_runs')
+                    .select('*')
+                    .order('run_at', { ascending: false })
+                    .limit(50); // Limit to last 50 runs for speed
+
+                if (data) {
+                    setRuns(data);
+                    // Calculate Real-time Stats
+                    const passed = data.filter(r => r.status === 'PASS').length;
+                    setStats({
+                        total: data.length,
+                        pass: passed,
+                        fail: data.length - passed
+                    });
+                }
+            }
+
+            return (
+                <div className="max-w-6xl mx-auto p-8 font-sans">
+                    {/* HEADER SECTION */}
+                    <div className="flex justify-between items-center mb-8 border-b pb-6 border-slate-200">
+                        <div>
+                            <h1 className="text-3xl font-bold text-slate-800">QA Regression Report</h1>
+                            <p className="text-slate-500 mt-1">Live monitoring for Airr 3.0 Pipeline</p>
+                        </div>
+                        <div className="flex gap-4">
+                            <StatBox 
+                                label="Pass Rate" 
+                                value={`${stats.total > 0 ? Math.round((stats.pass/stats.total)*100) : 0}%`} 
+                                color="text-green-600" 
+                            />
+                            <StatBox 
+                                label="Total Failures" 
+                                value={stats.fail} 
+                                color="text-red-600" 
+                            />
+                        </div>
+                    </div>
+
+                    {/* TABLE SECTION */}
+                    <div className="bg-white shadow-sm rounded-lg border border-slate-200 overflow-hidden">
+                        <table className="w-full text-left">
+                            <thead className="bg-slate-100 text-slate-500 font-semibold uppercase text-xs">
+                                <tr>
+                                    <th className="p-4 border-b w-20">Test ID</th>
+                                    <th className="p-4 border-b">Time</th>
+                                    <th className="p-4 border-b">Status</th>
+                                    <th className="p-4 border-b w-2/3">Drift / Errors</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100">
+                                {runs.map((run, index) => (
+                                    <tr key={run.id} className="hover:bg-slate-50 transition duration-150">
+                                        <td className="p-4 text-center align-top">
+                                            <span className="font-mono text-slate-700 font-semibold">{runs.length - index}</span>
+                                        </td>
+                                        <td className="p-4 text-slate-500 whitespace-nowrap align-top">
+                                            {new Date(run.run_at).toLocaleTimeString()}
+                                        </td>
+                                        <td className="p-4 align-top">
+                                            <span className={`px-3 py-1 rounded-full text-xs font-bold shadow-sm ${
+                                                run.status === 'PASS' ? 'bg-green-100 text-green-700 border border-green-200' : 'bg-red-100 text-red-700 border border-red-200'
+                                            }`}>
+                                                {run.status}
+                                            </span>
+                                        </td>
+                                        <td className="p-4 align-top">
+                                            {run.status === 'PASS' ? (
+                                                <span className="text-green-600 flex items-center gap-2 text-sm font-medium">
+                                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path></svg>
+                                                    Perfect Match
+                                                </span>
+                                            ) : (
+                                                <ErrorDisplay rawErrors={run.error_log} />
+                                            )}
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            );
+        }
+
+        // --- COMPONENT: Handles the specific JSON Error structure ---
+        function ErrorDisplay({ rawErrors }) {
+            let parsed = [];
+            try {
+                // Handle case where DB stores it as string vs JSON object
+                const data = typeof rawErrors === 'string' ? JSON.parse(rawErrors) : rawErrors;
+                parsed = Array.isArray(data) ? data : [data];
+            } catch (e) { 
+                return <span className="text-gray-400 italic">Invalid Error Format</span>; 
+            }
+
+            if (!parsed || parsed.length === 0) return null;
+
+            return (
+                <div className="flex flex-col gap-2">
+                    {parsed.map((err, i) => (
+                        <div key={i} className="text-sm bg-red-50 border-l-4 border-red-500 p-3 rounded shadow-sm">
+                            {/* Logic to choose what to display based on error type */}
+                            {err.field ? (
+                                <>
+                                    <span className="font-bold text-slate-800 block mb-1">{err.field}</span>
+                                    {err.expected !== undefined ? (
+                                        <div className="text-slate-600 text-xs grid grid-cols-2 gap-4">
+                                            <div>
+                                                <span className="uppercase text-[10px] text-slate-400 font-bold tracking-wider">Expected</span>
+                                                <div className="text-green-700 font-mono bg-green-50 px-1 rounded">{err.expected}</div>
+                                            </div>
+                                            <div>
+                                                <span className="uppercase text-[10px] text-slate-400 font-bold tracking-wider">Actual</span>
+                                                <div className="text-red-700 font-mono bg-red-100 px-1 rounded line-through">{err.actual}</div>
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <div className="text-red-600">{err.error || "Unknown Error"}</div>
+                                    )}
+                                </>
+                            ) : (
+                                <span className="text-red-700">{JSON.stringify(err)}</span>
+                            )}
+                        </div>
+                    ))}
+                </div>
+            );
+        }
+
+        // --- COMPONENT: Simple Stat Box ---
+        function StatBox({ label, value, color }) {
+            return (
+                <div className="bg-white px-6 py-4 rounded-lg border border-slate-200 shadow-sm w-40 text-center">
+                    <div className={`text-3xl font-bold ${color}`}>{value}</div>
+                    <div className="text-xs text-slate-400 uppercase tracking-wider font-semibold mt-1">{label}</div>
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>

@@ -1,0 +1,32 @@
+version: '3.8'
+
+services:
+  qa-dashboard:
+    build:
+      context: ./dashboard-ui
+    container_name: qa-dashboard
+    ports:
+      - "3000:80"
+    restart: unless-stopped
+    networks:
+      - qa-network
+
+  n8n:
+    image: n8nio/n8n
+    container_name: n8n
+    ports:
+      - "5678:5678"
+    environment:
+      - N8N_SECURE_COOKIE=false
+    volumes:
+      - n8n_data:/home/node/.n8n
+    restart: unless-stopped
+    networks:
+      - qa-network
+
+volumes:
+  n8n_data:
+
+networks:
+  qa-network:
+    driver: bridge
